@@ -168,6 +168,7 @@ def kb_after_scan(address: str, risk: str, symbol: str = "", chain: str = "") ->
     if symbol:
         btns.append([InlineKeyboardButton(text="📊 В watchlist", callback_data=f"watch:add:{address}:{symbol}:{chain}")])
     btns.append([InlineKeyboardButton(text="📤 Шерить PNG", callback_data=f"share:{address}")])
+    btns.append([InlineKeyboardButton(text="👥 Пригласи друга — +10 кр.", callback_data="referral_share")])
     btns.append([InlineKeyboardButton(text="🔍 Проверить другой", callback_data="menu:search")])
     btns.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu:back")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
