@@ -103,10 +103,16 @@ def ensure_user(uid: int, username: str = "") -> dict:
 
 def kb_main(balance: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Проверить токен", callback_data="menu:search")],
-        [InlineKeyboardButton(text="🔥 Популярные", callback_data="menu:popular")],
-        [InlineKeyboardButton(text=f"💰 Баланс: {balance}", callback_data="menu:balance")],
-        [InlineKeyboardButton(text="❓ Как работает", callback_data="menu:help")],
+        [InlineKeyboardButton(text="🔍 Проверить токен", callback_data="menu:search"),
+         InlineKeyboardButton(text="🧬 DNA кошелька", callback_data="menu:dna_info")],
+        [InlineKeyboardButton(text="🔥 Горячие токены", callback_data="menu:popular"),
+         InlineKeyboardButton(text="⚔️ Сравнить", callback_data="menu:compare")],
+        [InlineKeyboardButton(text="⭐ Watchlist", callback_data="menu:watchlist"),
+         InlineKeyboardButton(text="🔔 Алерты", callback_data="menu:alerts")],
+        [InlineKeyboardButton(text=f"💰 Баланс: {balance} кр.", callback_data="menu:balance"),
+         InlineKeyboardButton(text="💎 Купить кредиты", callback_data="menu:deposit")],
+        [InlineKeyboardButton(text="👥 Рефералка +10 кр.", callback_data="menu:referral"),
+         InlineKeyboardButton(text="📚 Помощь", callback_data="menu:help")],
     ])
 
 
@@ -205,6 +211,7 @@ async def cmd_start(m: Message):
     uid = m.from_user.id
     user = ensure_user(uid, m.from_user.username or "")
     bal = user["balance"]
+    first_name = m.from_user.first_name or "друг"
     
     # Реферальный код из /start ABC123
     args = m.text.split(maxsplit=1)
@@ -213,26 +220,37 @@ async def cmd_start(m: Message):
         if db.register_referral(uid, ref_code):
             log.info("referral_registered user=%d code=%s", uid, ref_code)
     
+    # Бонусное сообщение для новичков
+    scans = user.get("total_scans", 0)
+    if scans == 0:
+        newbie = "🎁 Твоя первая проверка — <b>БЕСПЛАТНА!</b>\nПросто напиши название токена.\n\n"
+    elif scans < 5:
+        newbie = f"📈 Ты уже сделал {scans} проверок — продолжай!\n\n"
+    else:
+        newbie = ""
+    
     await m.answer(
-        f"🛡 <b>СЛЕДОПЫТ CRYPTO</b>\n\n"
-        f"Просто напиши название токена — я проверю его на скам.\n\n"
-        f"🔍 <b>Примеры:</b>\n"
-        f"• PEPE или HAMSTER\n"
-        f"• «проверь NOT»\n"
-        f"• Адрес: 0x69825...\n"
-        f"• Ссылка DexScreener\n\n"
-        f"🌍 <b>Адреса 15+ сетей:</b>\n"
-        f"• BTC: 1A1zP1eP...\n"
-        f"• ETH: 0x69825...\n"
-        f"• TON: EQD5vc...\n"
-        f"• Tron: T9yD14...\n"
-        f"• SOL, ADA, XRP, LTC...\n\n"
-        f"🏛 <b>Легендарные адреса:</b>\n"
-        f"• Скинь адрес Сатоши — покажу справку\n\n"
-        f"🧬 <b>ДНК-анализ:</b> /dna 0x...\n\n"
-        f"💰 Баланс: <b>{bal}</b> кредитов\n"
-        f"🎁 Бесплатно: {FREE_CREDITS} кредитов\n"
-        f"💳 1 скан = {SCAN_COST} кредит",
+        f"🛡 <b>Привет, {first_name}!</b>\n\n"
+        f"Я — <b>Крипто_Следопыт</b>, твой персональный аналитик.\n"
+        f"Проверю любой токен на скам за 5 секунд.\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{newbie}"
+        f"🎯 <b>Что я умею:</b>\n\n"
+        f"🔍 Проверка токенов — скам или нет\n"
+        f"🧬 DNA кошелька — анализ китов\n"
+        f"🔥 Горячие токены — топ роста дня\n"
+        f"⚔️ Сравнение — PEPE vs BONK\n"
+        f"⭐ Watchlist — следи за токенами\n"
+        f"🔔 Алерты — уведомления о цене\n"
+        f"🏛 Легенды — адреса Сатоши, Виталика\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💡 <b>Как начать:</b>\n"
+        f"1️⃣ Просто напиши: <code>PEPE</code> или <code>Bitcoin</code>\n"
+        f"2️⃣ Или адрес: <code>0x69825...</code>\n"
+        f"3️⃣ Или нажми кнопку ниже 👇\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💎 Баланс: <b>{bal}</b> кредитов\n"
+        f"💳 1 проверка = {SCAN_COST} кредит",
         reply_markup=kb_main(bal),
         parse_mode=ParseMode.HTML,
     )
@@ -414,6 +432,241 @@ async def cmd_ref(m: Message):
         parse_mode=ParseMode.HTML,
     )
 
+
+# ─── /help — подробная инструкция ──────────────────────────────────
+
+@router.message(Command("help"))
+async def cmd_help(m: Message):
+    await m.answer(
+        "📚 <b>ПОЛНАЯ ИНСТРУКЦИЯ</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔍 <b>ПРОВЕРКА ТОКЕНОВ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "5 способов проверить токен:\n\n"
+        "1️⃣ <b>По названию:</b> PEPE, Bitcoin, NOT\n"
+        "2️⃣ <b>По тикеру:</b> $PEPE, $BTC\n"
+        "3️⃣ <b>По адресу контракта:</b>\n"
+        "   <code>0x6982508145454Ce...</code>\n"
+        "4️⃣ <b>По ссылке DexScreener:</b>\n"
+        "   https://dexscreener.com/...\n"
+        "5️⃣ <b>Быстрая проверка:</b> /q PEPE\n\n"
+        "<b>Что в отчёте:</b>\n"
+        "✅ Цена, Market Cap, ликвидность\n"
+        "✅ Количество холдеров\n"
+        "✅ Возраст токена\n"
+        "✅ Security check (honeypot, mint, LP lock)\n"
+        "✅ Красные флаги с объяснениями\n"
+        "✅ Итоговая оценка риска\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🧬 <b>DNA КОШЕЛЬКОВ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Команда: /dna 0x...\n\n"
+        "<b>Что анализирует:</b>\n"
+        "• Win Rate (процент прибыльных сделок)\n"
+        "• Среднее время удержания\n"
+        "• Паттерн: скальпер / свинг / холдер\n"
+        "• Риски кошелька\n"
+        "• Рекомендации\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔥 <b>АНАЛИТИКА</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "• /hot — топ растущих токенов за 24ч\n"
+        "• /q TOKEN — быстрая проверка\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⭐ <b>WATCHLIST + АЛЕРТЫ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "После проверки нажми:\n"
+        "• ⭐ В watchlist — добавить\n"
+        "• 🔔 +10% / -15% — алерт по цене\n\n"
+        "Команды:\n"
+        "• /watchlist — мой список\n"
+        "• /alerts — мои алерты\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💎 <b>КРЕДИТЫ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "• 1 проверка = 1 кредит\n"
+        "• DNA кошелька = 5 кредитов\n\n"
+        "<b>Пакеты:</b>\n"
+        "• 10 кр. = 1 TON\n"
+        "• 50 кр. = 4.5 TON (-10%)\n"
+        "• 200 кр. = 15 TON (-25%) 🔥\n\n"
+        "/buy — магазин | /balance — баланс\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "👥 <b>РЕФЕРАЛКА</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Пригласи друга — вы оба получите <b>10 кредитов</b>\n"
+        "/ref — твоя ссылка\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📋 <b>ВСЕ КОМАНДЫ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "/start — главное меню\n"
+        "/help — эта справка\n"
+        "/buy — купить кредиты\n"
+        "/balance — баланс\n"
+        "/hot — горячие токены\n"
+        "/q TOKEN — быстрая проверка\n"
+        "/dna ADDRESS — DNA кошелька\n"
+        "/watchlist — мой watchlist\n"
+        "/alerts — мои алерты\n"
+        "/ref — рефералка\n\n"
+        "💡 <b>Совет:</b> Начни с /hot — топ растущих токенов!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎬 Туториал (3 шага)", callback_data="tutorial:step1")],
+            [InlineKeyboardButton(text="💎 Тарифы и цены", callback_data="menu:deposit")],
+            [InlineKeyboardButton(text="👥 Рефералка", callback_data="menu:referral")],
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="menu:back")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── Туториал (3 шага) ──────────────────────────────────────────
+
+@router.callback_query(F.data == "tutorial:step1")
+async def tutorial_step1(cq: CallbackQuery):
+    await cq.message.edit_text(
+        "🎬 <b>ТУТОРИАЛ — Шаг 1 из 3</b>\n\n"
+        "Давай попробуем первую проверку!\n\n"
+        "🎯 <b>Задание:</b> Проверь токен PEPE\n\n"
+        "Это бесплатно для новичков\n"
+        "и займёт всего 5 секунд.\n\n"
+        "Нажми кнопку ниже 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎯 Проверить PEPE (бесплатно)", callback_data="tutorial:try_pepe")],
+            [InlineKeyboardButton(text="⏭ Пропустить туториал", callback_data="tutorial:finish")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+    await cq.answer()
+
+@router.callback_query(F.data == "tutorial:try_pepe")
+async def tutorial_try_pepe(cq: CallbackQuery):
+    await cq.answer("🎯 Отлично! Теперь добавь в watchlist 👇")
+    await cq.message.edit_text(
+        "🎬 <b>ТУТОРИАЛ — Шаг 2 из 3</b>\n\n"
+        "Отлично! Ты сделал первую проверку 🎉\n\n"
+        "🎯 <b>Задание:</b> Добавь PEPE в watchlist\n\n"
+        "Теперь ты сможешь следить за ценой\n"
+        "и получать уведомления.\n\n"
+        "Нажми кнопку ниже 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Добавить PEPE в watchlist", callback_data="tutorial:try_watch")],
+            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="tutorial:finish")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+
+@router.callback_query(F.data == "tutorial:try_watch")
+async def tutorial_try_watch(cq: CallbackQuery):
+    await cq.answer("✅ Добавлено! Последний шаг 👇")
+    await cq.message.edit_text(
+        "🎬 <b>ТУТОРИАЛ — Шаг 3 из 3</b>\n\n"
+        "Почти готово! 🎯\n\n"
+        "🎁 <b>Задание:</b> Получи реф-ссылку\n\n"
+        "Пригласи друга — и вы оба получите\n"
+        "<b>по 10 бесплатных кредитов</b> после\n"
+        "его первой оплаты.\n\n"
+        "Нажми кнопку ниже 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👥 Получить реф-ссылку", callback_data="tutorial:try_ref")],
+            [InlineKeyboardButton(text="✅ Завершить туториал", callback_data="tutorial:finish")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+
+@router.callback_query(F.data == "tutorial:try_ref")
+async def tutorial_try_ref(cq: CallbackQuery):
+    stats = db.get_referral_stats(cq.from_user.id)
+    await cq.answer()
+    await cq.message.edit_text(
+        f"👥 <b>Твоя реф-ссылка:</b>\n\n"
+        f"<code>https://t.me/{BOT_USERNAME}?start={stats['code']}</code>\n\n"
+        f"Скопируй и отправь другу!\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🎯 Задание выполнено! Нажми «Завершить» 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Завершить туториал", callback_data="tutorial:finish")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+
+@router.callback_query(F.data == "tutorial:finish")
+async def tutorial_finish(cq: CallbackQuery):
+    await cq.answer("🎉 Туториал пройден!")
+    bal = db.get_balance(cq.from_user.id)
+    await cq.message.edit_text(
+        "🎉 <b>Поздравляю! Туториал пройден!</b>\n\n"
+        "Теперь ты умеешь:\n"
+        "✅ Проверять токены на скам\n"
+        "✅ Следить за ними через watchlist\n"
+        "✅ Приглашать друзей за бонусы\n\n"
+        f"💎 Баланс: <b>{bal}</b> кредитов\n\n"
+        "🚀 <b>Готов к большим делам!</b>\n\n"
+        "Попробуй /hot — топ растущих токенов дня",
+        reply_markup=kb_main(bal),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ─── Callback: Навигация по меню ─────────────────────────────────
+
+@router.callback_query(F.data == "menu:compare")
+async def cb_compare(cq: CallbackQuery):
+    await cq.answer()
+    await cq.message.edit_text(
+        "⚔️ <b>СРАВНЕНИЕ ТОКЕНОВ</b>\n\n"
+        "Отправь два тикера через пробел:\n\n"
+        "<code>PEPE BONK</code>\n"
+        "<code>DOGE SHIB</code>\n"
+        "<code>NOT TON</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Назад", callback_data="menu:back")],
+        ]),
+        parse_mode=ParseMode.HTML,
+    )
+
+@router.callback_query(F.data == "menu:watchlist")
+async def cb_watchlist(cq: CallbackQuery):
+    await cmd_watchlist(cq.message)
+    await cq.answer()
+
+@router.callback_query(F.data == "menu:alerts")
+async def cb_alerts(cq: CallbackQuery):
+    alerts = db.get_pending_alerts()
+    user_alerts = [a for a in alerts if a.get("user_id") == cq.from_user.id]
+    
+    if not user_alerts:
+        await cq.message.edit_text(
+            "🔔 <b>Мои алерты</b>\n\n"
+            "У тебя пока нет активных алертов.\n\n"
+            "💡 После проверки токена нажми\n"
+            "🔔 +10% или 🔔 -15% чтобы добавить.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Проверить токен", callback_data="menu:search")],
+                [InlineKeyboardButton(text="🏠 Назад", callback_data="menu:back")],
+            ]),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        lines = []
+        for a in user_alerts[:10]:
+            sym = a.get("token_symbol", "?")
+            rule = a.get("rule_type", "?")
+            val = a.get("rule_value", 0)
+            lines.append(f"• {sym}: {rule} {val:.0f}%")
+        await cq.message.edit_text(
+            "🔔 <b>Мои алерты</b>\n\n" + "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Назад", callback_data="menu:back")],
+            ]),
+            parse_mode=ParseMode.HTML,
+        )
+    await cq.answer()
+
+@router.callback_query(F.data == "menu:referral")
+async def cb_referral(cq: CallbackQuery):
+    await cmd_ref(cq.message)
+    await cq.answer()
 
 # ─── Популярные ───────────────────────────────────────────────────
 
@@ -695,10 +948,32 @@ async def handle_any_text(m: Message):
 
     # Валидация + транслитерация кириллицы
     if not is_valid_query(text):
+        # Умные подсказки на основе текста
+        hints = []
+        if len(text) <= 20 and text.replace(" ", "").isalnum():
+            hints.append(f"💡 Похоже на токен? Попробуй: /q {text}")
+        if len(text) > 20 and any(c.isdigit() for c in text):
+            hints.append(f"💡 Это похоже на адрес? Попробуй: /dna {text[:20]}...")
+        
+        hints_text = "\n".join(hints) if hints else ""
+        if hints_text:
+            hints_text += "\n\n"
+        
         await m.answer(
-            f"🤔 «{text[:30]}» не похоже на название токена\n\n"
-            "Попробуй:\n• PEPE, HAMSTER\n• Адрес: 0x...\n• Ссылку: dexscreener.com/...",
-            reply_markup=kb_unknown(),
+            f"🤔 «{text[:30]}» не совсем понял тебя\n\n"
+            f"{hints_text}"
+            "💡 <b>Что я умею:</b>\n"
+            "• Проверять токены (просто напиши PEPE)\n"
+            "• Анализировать кошельки (/dna 0x...)\n"
+            "• Горячие токены (/hot)\n"
+            "• Сравнивать (/vs PEPE BONK)",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Проверить токен", callback_data="menu:search"),
+                 InlineKeyboardButton(text="🔥 Горячие токены", callback_data="menu:popular")],
+                [InlineKeyboardButton(text="📚 Справка", callback_data="menu:help"),
+                 InlineKeyboardButton(text="🏠 Меню", callback_data="menu:back")],
+            ]),
+            parse_mode=ParseMode.HTML,
         )
         return
 

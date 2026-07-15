@@ -1,0 +1,16 @@
+# BotFather Menu Commands
+# Скопируй в @BotFather → /mybots → Edit Commands
+
+start - 🏠 Главное меню
+help - 📚 Инструкция
+buy - 💎 Купить кредиты
+balance - 💰 Мой баланс
+hot - 🔥 Горячие токены
+q - ⚡ Быстрая проверка
+vs - ⚔️ Сравнить токены
+watch - ⭐ В watchlist
+watchlist - 📋 Мой watchlist
+alerts - 🔔 Мои алерты
+recent - 🕒 История
+dna - 🧬 DNA кошелька
+ref - 👥 Рефералка
