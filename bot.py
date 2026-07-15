@@ -5,6 +5,8 @@ sledopyt-crypto-v2 — Telegram бот с SemanticParser (всё на скрип
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import re
 import time
 import asyncio
