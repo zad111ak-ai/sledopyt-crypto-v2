@@ -21,6 +21,7 @@ from aiogram.enums import ParseMode
 from aiogram.client.session.aiohttp import AiohttpSession
 
 import db
+from utils.rate_limiter import rate_limiter
 from scanner import scan_token, search_token, is_address, extract_address
 from native_chains import smart_sort, is_wrapped, get_preferred_chains, force_native_chain
 from formatter import format_telegram_message, format_l1_report
@@ -32,10 +33,9 @@ from payment_handler import PaymentHandler
 # ═══════════════════════════════════════════════════════════════════
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════════════════
-BOT_TOKEN = os.environ.get(
-    "SCAM_BOT_TOKEN",
-    "REDACTED_TOKEN",
-)
+BOT_TOKEN = os.environ.get("SCAM_BOT_TOKEN", "")
+if not BOT_TOKEN:
+    raise ValueError("SCAM_BOT_TOKEN must be set in .env!")
 PROXY = os.environ.get("https_proxy", os.environ.get("HTTPS_PROXY", "http://127.0.0.1:1082"))
 SCAN_COST = 1
 DNA_COST = 5
@@ -942,6 +942,14 @@ async def cmd_unwatch(m: Message):
 
 @router.message(F.text)
 async def handle_any_text(m: Message):
+    # Rate limiting
+    allowed, wait_s = rate_limiter.check(m.from_user.id, max_per_minute=10)
+    if not allowed:
+        await m.answer(
+            f"⏳ Слишком много запросов! Подожди {wait_s} сек.\n\n💡 Лимит: 10 запросов в минуту.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     text = m.text.strip()
     if not text or text.startswith("/"):
         return
