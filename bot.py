@@ -217,9 +217,11 @@ router = Router()
 # ─── Подключение дополнительных хендлеров ─────────────────────
 from handlers import legends as legends_handler
 from handlers import investigate as investigate_handler
+from handlers import scam_hunter as scam_hunter_handler
 
 router.include_router(legends_handler.router)
 router.include_router(investigate_handler.router)
+router.include_router(scam_hunter_handler.router)
 
 
 # ─── /start ────────────────────────────────────────────────────────

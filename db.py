@@ -111,6 +111,49 @@ def init_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS scam_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reporter_id INTEGER,
+            token_address TEXT,
+            chain TEXT,
+            evidence TEXT,
+            status TEXT DEFAULT 'pending',
+            points INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_reports_reporter ON scam_reports(reporter_id)
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS creators_cache (
+            creator TEXT NOT NULL,
+            chain TEXT NOT NULL,
+            siblings_json TEXT,
+            cached_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (creator, chain)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS investigation_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            token_address TEXT,
+            chain TEXT,
+            verdict TEXT,
+            scam_probability INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_investigation_addr ON investigation_results(token_address)
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS referrals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             referrer_id INTEGER NOT NULL,
