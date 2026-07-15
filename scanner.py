@@ -8,6 +8,7 @@ import re
 import time
 import httpx
 
+from services.api.smart_router import router
 # ---------------------------------------------------------------------------
 # Proxy – all outbound requests go through the local SOCKS proxy
 # ---------------------------------------------------------------------------

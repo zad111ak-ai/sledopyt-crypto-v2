@@ -24,7 +24,11 @@ import db
 from utils.rate_limiter import rate_limiter
 from scanner import scan_token, search_token, is_address, extract_address
 from native_chains import smart_sort, is_wrapped, get_preferred_chains, force_native_chain
-from formatter import format_telegram_message, format_l1_report
+from formatter import format_telegram_message, format_l1_report, format_comparison
+from services.api.smart_router import router as api_router
+from services.crypto.verified_wrapped import filter_wrapped
+from services.api.http_client import HTTPClient
+from utils.async_helpers import monitor_event_loop, api_limiter
 from semantic import SemanticParser
 from address_parser import UniversalAddressParser
 import coingecko
@@ -519,6 +523,87 @@ async def cmd_help(m: Message):
         parse_mode=ParseMode.HTML,
     )
 
+
+
+# ─── /vs СРАВНЕНИЕ ТОКЕНОВ ──────────────────────────────────────
+
+@router.message(Command("vs"))
+async def cmd_vs(m: Message, command: CommandObject):
+    """Сравнивает два токена: /vs PEPE BONK"""
+    if not command.args:
+        await m.answer(
+            "⚔️ <b>СРАВНЕНИЕ ТОКЕНОВ</b>\n\n"
+            "Использование: <code>/vs TOKEN1 TOKEN2</code>\n\n"
+            "Примеры:\n"
+            "• <code>/vs PEPE BONK</code>\n"
+            "• <code>/vs DOGE SHIB</code>\n"
+            "• <code>/vs NOT TON</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    parts = command.args.strip().split()
+    if len(parts) < 2:
+        await m.answer("⚠️ Нужно 2 токена: <code>/vs PEPE BONK</code>", parse_mode=ParseMode.HTML)
+        return
+
+    token_a, token_b = parts[0].strip().upper(), parts[1].strip().upper()
+
+    # Сообщение о поиске
+    status_msg = await m.answer(f"🔍 Ищу <b>{token_a}</b> и <b>{token_b}</b>...", parse_mode=ParseMode.HTML)
+
+    # Параллельный поиск обоих токенов
+    try:
+        results = await asyncio.gather(
+            search_token(token_a),
+            search_token(token_b),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Ошибка поиска: {e}")
+        return
+
+    data_a, data_b = results
+
+    # Обработка ошибок
+    if isinstance(data_a, Exception):
+        await status_msg.edit_text(f"❌ Токен <b>{token_a}</b> не найден: {data_a}")
+        return
+    if isinstance(data_b, Exception):
+        await status_msg.edit_text(f"❌ Токен <b>{token_b}</b> не найден: {data_b}")
+        return
+
+    if not data_a:
+        await status_msg.edit_text(f"❌ Токен <b>{token_a}</b> не найден на DexScreener")
+        return
+    if not data_b:
+        await status_msg.edit_text(f"❌ Токен <b>{token_b}</b> не найден на DexScreener")
+        return
+
+    # Берём лучший pair для каждого
+    pair_a = data_a[0]
+    pair_b = data_b[0]
+
+    # Параллельный security scan обоих
+    try:
+        scans = await asyncio.gather(
+            scan_token(pair_a.get("baseToken", {}).get("address", "")),
+            scan_token(pair_b.get("baseToken", {}).get("address", "")),
+            return_exceptions=True,
+        )
+    except Exception:
+        scans = [{"assessment": {"risk_level": "unknown", "flags": []}}] * 2
+
+    scan_a = scans[0] if not isinstance(scans[0], Exception) else {"assessment": {"risk_level": "unknown", "flags": []}}
+    scan_b = scans[1] if not isinstance(scans[1], Exception) else {"assessment": {"risk_level": "unknown", "flags": []}}
+
+    # Merge scan data into pair data
+    pair_a_full = {**pair_a, "assessment": scan_a.get("assessment", {}), "liquidity_usd": pair_a.get("liquidity", {}).get("usd", 0), "volume_24h": pair_a.get("volume", {}).get("h24", 0), "market_cap": pair_a.get("marketCap", 0), "price_change_24h": pair_a.get("priceChange", {}).get("h24", 0)}
+    pair_b_full = {**pair_b, "assessment": scan_b.get("assessment", {}), "liquidity_usd": pair_b.get("liquidity", {}).get("usd", 0), "volume_24h": pair_b.get("volume", {}).get("h24", 0), "market_cap": pair_b.get("marketCap", 0), "price_change_24h": pair_b.get("priceChange", {}).get("h24", 0)}
+
+    # Форматируем и отправляем
+    report = format_comparison(pair_a_full, pair_b_full)
+    await status_msg.edit_text(report, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 # ─── Туториал (3 шага) ──────────────────────────────────────────
 
@@ -1157,7 +1242,10 @@ async def handle_any_text(m: Message):
                 wrapped_list = []
                 if dex_results:
                     # Фильтруем wrapped (не на родной сети)
-                    wrapped_list = [r for r in dex_results if r.get("chain", "") != forced_chain]
+                    raw_wrapped = [r for r in dex_results if r.get("chain", "") != forced_chain]
+                    # Фильтруем скам-клоны: только верифицированные + цена ±15%
+                    orig_price = float(l1_data.get("market_data", {}).get("current_price", {}).get("usd", 0))
+                    wrapped_list = filter_wrapped(orig_price, raw_wrapped)
                     wrapped_list = smart_sort(wrapped_list, query)[:3]
 
                 report = format_l1_report(l1_data, wrapped_list)
@@ -1243,6 +1331,22 @@ async def handle_any_text(m: Message):
         )
 
 
+# ─── /apistats АДМИН ──────────────────────────────────────
+
+@router.message(Command("apistats"))
+async def cmdapistats(m: Message):
+    admin_id = int(os.environ.get("ADMIN_ID", "0"))
+    if m.from_user.id != admin_id:
+        await m.answer("⛔ Нет доступа")
+        return
+
+    stats = api_router.get_stats()
+    lines = ["📊 API СТАТИСТИКА\n"]
+    for name, s in sorted(stats.items(), key=lambda x: x[1]["total_requests"], reverse=True):
+        health = "🟢" if s["is_healthy"] else "🔴"
+        lines.append(f"{health} {name}: reqs={s["total_requests"]} errors={s["total_errors"]} ({s["error_rate"]}%) rate={s["rate_usage"]}")
+    await m.answer("\n".join(lines))
+
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════
@@ -1254,7 +1358,6 @@ async def main():
 
     db.init_db()
 
-
     # Payment handler
     payment = PaymentHandler(CRYPTOBOT_TOKEN)
     session = AiohttpSession(proxy=PROXY)
@@ -1262,13 +1365,20 @@ async def main():
     dp = Dispatcher()
     dp.include_router(router)
 
+    # Startup: event loop monitor
+    asyncio.create_task(monitor_event_loop())
+
     stats = db.get_bot_stats()
     log.info("🚀 Следопыт Crypto v2 запущен!")
     log.info(f"   Пользователей: {stats['total_users']}")
     log.info(f"   Сканов: {stats['total_scans']}")
     log.info(f"   Выручка: {stats['total_revenue_ton']} TON")
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await HTTPClient.close()
+        log.info("🛑 Бот остановлен")
 
 
 if __name__ == "__main__":

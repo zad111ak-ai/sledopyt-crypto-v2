@@ -214,8 +214,11 @@ def format_l1_report(l1_data: dict, wrapped_list: list[dict] | None = None) -> s
 
     # ─── WRAPPED ВЕРСИИ ─────────────────────────────────────────
     if wrapped_list:
-        lines.append(f"━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append(f"📦 <b>Wrapped версии ({len(wrapped_list)}):</b>")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"📦 <b>Wrapped-токены ({len(wrapped_list)})</b>")
+        lines.append("")
+        lines.append(f"Это токены {symbol} на других сетях (не на родной).")
+        lines.append("Их можно использовать в DeFi-приложениях этой сети.")
         lines.append("")
 
         for i, w in enumerate(wrapped_list[:5], 1):
@@ -227,17 +230,23 @@ def format_l1_report(l1_data: dict, wrapped_list: list[dict] | None = None) -> s
             liq_str = _fmt_big(w_liq) if w_liq else "н/д"
             price_str = _fmt_price(w_price) if w_price else "н/д"
 
-            lines.append(f"  {i}️⃣ <b>{w_sym}</b> ({w_chain})")
-            lines.append(f"     💰 {price_str} | 💧 Ликвидность: {liq_str}")
+            lines.append(f"  {i}️⃣ <b>{w_sym}</b> → сеть: {w_chain}")
+            lines.append(f"     Цена: {price_str} | Ликвидность: {liq_str}")
             lines.append("")
 
+        lines.append("⚠️ <b>Будь осторожен:</b> wrapped-токены бывают")
+        lines.append("от проверенных эмитентов (Wormhole, Allbridge) и")
+        lines.append("от левых проектов. Проверяй цену — если она")
+        lines.append("отличается от оригинала более чем на 15%,")
+        lines.append("это скорее всего скам-клон.")
+
     # ─── РЕКОМЕНДАЦИЯ ───────────────────────────────────────────
-    lines.append(f"━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"💡 <b>Как использовать:</b>")
-    lines.append(f"• Для инвестирования → покупай {symbol} на бирже")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 <b>Где покупать:</b>")
+    lines.append(f"• Оригинальный {symbol} → биржа (Bybit, OKX)")
     if wrapped_list:
-        lines.append(f"• Для DeFi/DEX → используй wrapped версию")
-    lines.append(f"━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"• Wrapped → DEX на той сети (Uniswap, Raydium)")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━")
 
     return "\n".join(lines)
 
@@ -430,5 +439,102 @@ def format_telegram_message(result: dict, wrapped_warning: str = "") -> str:
     scan_time = result.get("scan_time_ms", 0)
     sources = result.get("sources", "DexScreener")
     lines.append(f"⏱ <i>Скан: {scan_time}ms | 📡 {sources}</i>")
+
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════
+# COMPARISON: /vs TOKEN1 TOKEN2
+# ═══════════════════════════════════════════════════════════
+
+def format_comparison(data_a: dict, data_b: dict) -> str:
+    """Форматирует сравнение двух токенов."""
+    def _sym(d):
+        return d.get("symbol", d.get("baseToken", {}).get("symbol", "?"))
+
+    def _name(d):
+        return d.get("name", d.get("baseToken", {}).get("name", ""))
+
+    def _price(d):
+        p = d.get("price_usd", 0)
+        return f"${p:.6f}" if p < 0.01 else f"${p:.2f}" if p < 1 else f"${p:,.2f}"
+
+    def _liq(d):
+        l = d.get("liquidity_usd", 0)
+        if l >= 1_000_000:
+            return f"${l/1_000_000:.1f}M"
+        elif l >= 1_000:
+            return f"${l/1_000:.0f}K"
+        return f"${l:.0f}"
+
+    def _vol(d):
+        v = d.get("volume_24h", 0)
+        if v >= 1_000_000:
+            return f"${v/1_000_000:.1f}M"
+        elif v >= 1_000:
+            return f"${v/1_000:.0f}K"
+        return f"${v:.0f}"
+
+    def _mc(d):
+        m = d.get("market_cap", d.get("fdv", 0))
+        if m >= 1_000_000:
+            return f"${m/1_000_000:.1f}M"
+        elif m >= 1_000:
+            return f"${m/1_000:.0f}K"
+        return f"${m:.0f}"
+
+    def _change(d, key="price_change_24h"):
+        v = d.get(key, 0)
+        emoji = "🟢" if v > 0 else "🔴" if v < 0 else "⚪"
+        return f"{emoji} {v:+.1f}%"
+
+    def _risk(d):
+        risk = d.get("assessment", {}).get("risk_level", "unknown")
+        emoji = {"safe": "🟢", "low": "🟢", "medium": "🟡", "high": "🔴", "critical": "🚨"}.get(risk, "⚪")
+        return f"{emoji} {risk.upper()}"
+
+    sym_a, sym_b = _sym(data_a), _sym(data_b)
+
+    lines = [
+        f"⚔️ <b>СРАВНЕНИЕ: {sym_a} vs {sym_b}</b>",
+        "",
+        f"<b>{sym_a}</b> — {_name(data_a)}",
+        f"<b>{sym_b}</b> — {_name(data_b)}",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{'Параметр':<16} {sym_a:>10} {sym_b:>10}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"💰 Цена          {_price(data_a):>10} {_price(data_b):>10}",
+        f"💧 Ликвидность   {_liq(data_a):>10} {_liq(data_b):>10}",
+        f"📊 Объём 24ч     {_vol(data_a):>10} {_vol(data_b):>10}",
+        f"🏦 Market Cap    {_mc(data_a):>10} {_mc(data_b):>10}",
+        f"📈 Изм. 24ч     {_change(data_a):>10} {_change(data_b):>10}",
+        f"🛡 Риск         {_risk(data_a):>10} {_risk(data_b):>10}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    # Победитель по ликвидности
+    liq_a = data_a.get("liquidity_usd", 0)
+    liq_b = data_b.get("liquidity_usd", 0)
+    if liq_a > liq_b * 1.5:
+        lines.append(f"🏆 <b>{sym_a}</b> лидирует по ликвидности в {liq_a/max(liq_b,1):.1f}x")
+    elif liq_b > liq_a * 1.5:
+        lines.append(f"🏆 <b>{sym_b}</b> лидирует по ликвидности в {liq_b/max(liq_a,1):.1f}x")
+    else:
+        lines.append("🤝 Ликвидность примерно равна")
+
+    # Флаги безопасности
+    flags_a = data_a.get("assessment", {}).get("flags", [])
+    flags_b = data_b.get("assessment", {}).get("flags", [])
+
+    if flags_a or flags_b:
+        lines.append("")
+        lines.append("⚠️ <b>Риски:</b>")
+        if flags_a:
+            lines.append(f"  {sym_a}: {', '.join(flags_a[:3])}")
+        if flags_b:
+            lines.append(f"  {sym_b}: {', '.join(flags_b[:3])}")
+
+    lines.append(f"\n⏱ <i>Данные: DexScreener + security APIs</i>")
 
     return "\n".join(lines)
