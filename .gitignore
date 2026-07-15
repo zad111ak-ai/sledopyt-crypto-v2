@@ -1,0 +1,22 @@
+# Environment & secrets
+.env
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Data (never commit user data)
+data/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
