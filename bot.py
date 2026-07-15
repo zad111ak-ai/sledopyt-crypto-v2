@@ -26,6 +26,10 @@ import db
 from utils.rate_limiter import rate_limiter
 from scanner import scan_token, search_token, is_address, extract_address
 from native_chains import smart_sort, is_wrapped, get_preferred_chains, force_native_chain
+from services.gamification.streaks import update_streak
+from services.payments.ton_native import PRODUCTS as TON_PRODUCTS, parse_payload as parse_ton_payload
+from services.payments.ton_native import create_ton_invoice
+from services.subscriptions.channel_manager import grant_access
 from formatter import format_telegram_message, format_l1_report, format_comparison
 from services.api.smart_router import router as api_router
 from services.crypto.verified_wrapped import filter_wrapped
@@ -921,6 +925,31 @@ async def cmd_dna(m: Message):
 #  CORE: СКАНИРОВАНИЕ
 # ═══════════════════════════════════════════════════════════════════
 
+# ─── ERROR MESSAGES ───────────────────────────────────────────
+ERROR_MESSAGES = {
+    "token_not_found": (
+        "❌ <b>Токен не найден</b>\n\n"
+        "Причины:\n"
+        "• Слишком новый (< 1 часа)\n"
+        "• Низкая ликвидность\n"
+        "• Опечатка в названии\n\n"
+        "Попробуй:\n"
+        "1. Проверь на CoinGecko\n"
+        "2. Вставь адрес контракта\n"
+        "3. Подожди 5 минут"
+    ),
+    "api_timeout": (
+        "⏱ <b>API не отвечает</b>\n\n"
+        "Попробуй через 1-2 минуты.\n"
+        "Или другой токен."
+    ),
+    "api_error": (
+        "⚠️ <b>Ошибка проверки</b>\n\n"
+        "Попробуй позже.\n"
+        "Если повторяется — /support"
+    ),
+}
+
 async def _do_scan(message: types.Message, uid: int, address: str, wrapped_warning: str = ""):
     user = ensure_user(uid)
 
@@ -934,43 +963,50 @@ async def _do_scan(message: types.Message, uid: int, address: str, wrapped_warni
         return
 
     db.spend_balance(uid, SCAN_COST)
-    db.log_credit_transaction(uid, -SCAN_COST, "spend", "Проверка токена")
+    db.log_credit_transaction(uid, SCAN_COST, "spend", "Проверка токена")
+
+    # Progress indicator
     status = await message.edit_text(
-        f"🔬 <b>Сканирую...</b>\n"
-        f"📋 <code>{address[:16]}...{address[-6:]}</code>",
+        "⏳ <b>Проверяю...</b>\n"
+        "✅ Баланс проверен\n"
+        "📊 Данные (1/3)",
         parse_mode=ParseMode.HTML,
     )
 
     start = time.time()
     try:
-        result = await scan_token(address)
+        result = await asyncio.wait_for(scan_token(address), timeout=30)
+    except asyncio.TimeoutError:
+        db.add_balance(uid, SCAN_COST)
+        db.log_credit_transaction(uid, SCAN_COST, "refund", "Таймаут сканирования")
+        await status.edit_text(ERROR_MESSAGES["api_timeout"], reply_markup=kb_back())
+        return
     except Exception as e:
         log.error(f"Scan error: {e}")
         db.add_balance(uid, SCAN_COST)
         db.log_credit_transaction(uid, SCAN_COST, "refund", "Возврат за ошибку сканирования")
-        await status.edit_text(
-            "❌ Ошибка сканирования\n\nКредит возвращён ✅\nПопробуй через 30 секунд",
-            reply_markup=kb_back(),
-        )
+        await status.edit_text(ERROR_MESSAGES["api_error"], reply_markup=kb_back())
         return
 
     elapsed = int((time.time() - start) * 1000)
 
     if not result.get("success"):
         db.add_balance(uid, SCAN_COST)
-        await status.edit_text(
-            "❌ Токен не найден\n\nПроверь адрес или попробуй:\n"
-            "• Другое название\n"
-            "• Ссылку на DexScreener\n"
-            "• Полный адрес контракта",
-            reply_markup=kb_back(),
-        )
+        await status.edit_text(ERROR_MESSAGES["token_not_found"], reply_markup=kb_back())
         return
 
     risk = result.get("assessment", {}).get("risk_level", "unknown")
     db.record_scan(uid, address, risk, elapsed)
+
+    # Gamification: streaks + achievements
+    is_scam = risk in ("high", "critical")
+    streak_info = update_streak(db._conn(), uid, is_scam)
+    if streak_info["bonus"] > 0:
+        db.add_balance(uid, streak_info["bonus"], f"Streak {streak_info['streak']}")
+    for ach in streak_info.get("new_achievements", []):
+        db.add_balance(uid, ach["reward"], ach["name"])
+
     msg = format_telegram_message(result, wrapped_warning)
-    bal = db.get_balance(uid)
     symbol = result.get("symbol", "")
     chain = result.get("chain", "")
 
@@ -1348,6 +1384,129 @@ async def cmdapistats(m: Message):
         health = "🟢" if s["is_healthy"] else "🔴"
         lines.append(f"{health} {name}: reqs={s["total_requests"]} errors={s["total_errors"]} ({s["error_rate"]}%) rate={s["rate_usage"]}")
     await m.answer("\n".join(lines))
+
+@router.message(Command("buy"))
+async def cmd_buy(m: Message, command: CommandObject):
+    """Покупка кредитов через TON Space."""
+    uid = m.from_user.id
+
+    if command.args:
+        product_key = command.args.strip().lower()
+        product = TON_PRODUCTS.get(product_key)
+        if not product:
+            await m.answer(
+                "❌ Неизвестный продукт\n\n"
+                "Доступно:\n"
+                "• /buy credits_10 — 10 кредитов (1 TON)\n"
+                "• /buy credits_50 — 50 кредитов (4.5 TON)\n"
+                "• /buy credits_200 — 200 кредитов (15 TON)\n"
+                "• /buy pro_week — Pro на неделю (50 TON)\n"
+                "• /buy pro_month — Pro на месяц (180 TON)",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        try:
+            await create_ton_invoice(m.bot, uid, product_key)
+        except Exception as e:
+            log.error(f"Invoice error: {e}")
+            await m.answer("❌ Ошибка создания инвойса. Попробуй позже.")
+        return
+
+    # Меню покупки
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 10 кредитов — 1 TON", callback_data="buy:credits_10")],
+        [InlineKeyboardButton(text="💎 50 кредитов — 4.5 TON", callback_data="buy:credits_50")],
+        [InlineKeyboardButton(text="💎 200 кредитов — 15 TON", callback_data="buy:credits_200")],
+        [InlineKeyboardButton(text="👑 Pro неделя — 50 TON", callback_data="buy:pro_week")],
+        [InlineKeyboardButton(text="👑 Pro месяц — 180 TON", callback_data="buy:pro_month")],
+    ])
+
+    await m.answer(
+        "💳 <b>ПОКУПКА КРЕДИТОВ</b>\n\n"
+        "Оплата через TON Space (без комиссии)\n\n"
+        "Выбери пакет:",
+        reply_markup=kb,
+        parse_mode=ParseMode.HTML,
+    )
+
+
+@router.callback_query(F.data.startswith("buy:"))
+async def cb_buy(cq: CallbackQuery):
+    """Обработка нажатия кнопки покупки."""
+    product_key = cq.data.split(":", 1)[1]
+    uid = cq.from_user.id
+
+    try:
+        await create_ton_invoice(cq.bot, uid, product_key)
+        await cq.answer()
+    except Exception as e:
+        log.error(f"Invoice error: {e}")
+        await cq.answer("❌ Ошибка", show_alert=True)
+
+
+# ─── TON NATIVE PAYMENTS ──────────────────────────────────────
+
+@router.pre_checkout_query()
+async def pre_checkout(q: PreCheckoutQuery):
+    """Подтверждаем оплату TON Space."""
+    await q.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def on_ton_payment(m: Message):
+    """Обработка успешной оплаты через TON Space."""
+    payload = m.successful_payment.invoice_payload
+    parsed = parse_ton_payload(payload)
+
+    if not parsed:
+        await m.answer("❌ Ошибка обработки оплаты")
+        return
+
+    user_id = parsed["user_id"]
+    product_key = parsed["product_key"]
+    product = TON_PRODUCTS.get(product_key)
+
+    if not product:
+        await m.answer("❌ Неизвестный продукт")
+        return
+
+    # Начисляем кредиты
+    if product.get("credits"):
+        db.add_balance(user_id, product["credits"], product["desc"])
+        db.log_credit_transaction(user_id, product["credits"], "ton_payment", product["desc"])
+
+    # Pro подписка
+    if product.get("days"):
+        days = product["days"]
+        # Продлеваем pro
+        db.extend_pro(user_id, days)
+        # Выдаём доступ в канал
+        await grant_access(m.bot, user_id, days)
+        await m.answer(
+            f"✅ *Pro активирован!*\n\n"
+            f"🔗 Доступ в закрытый канал будет отправлен",
+            parse_mode="Markdown",
+        )
+
+    amount_ton = m.successful_payment.total_amount / 1e9
+    db.save_crypto_payment(
+        invoice_id=payload,
+        user_id=user_id,
+        product=product_key,
+        amount_ton=amount_ton,
+        currency="TON",
+    )
+
+    await m.answer(
+        f"✅ *Оплата получена!*\n\n"
+        f"{product['desc']}\n"
+        f"💰 Оплачено: {amount_ton} TON",
+        parse_mode="Markdown",
+    )
+
+    log.info(f"TON payment: user={user_id} product={product_key} amount={amount_ton}")
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN

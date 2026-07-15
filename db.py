@@ -25,7 +25,10 @@ def init_db():
             total_scans INTEGER DEFAULT 0,
             total_spent REAL DEFAULT 0,
             created_at REAL,
-            last_scan_at REAL
+            last_scan_at REAL,
+            streak INTEGER DEFAULT 0,
+            last_check_date TEXT,
+            pro_until TEXT
         )
     """)
     conn.execute("""
@@ -99,6 +102,15 @@ def init_db():
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS achievements (
+            user_id INTEGER,
+            ach_id TEXT,
+            unlocked_at TEXT,
+            PRIMARY KEY (user_id, ach_id)
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS referrals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             referrer_id INTEGER NOT NULL,
@@ -159,6 +171,48 @@ def spend_balance(uid: int, credits: int) -> bool:
     conn.commit()
     conn.close()
     return True
+
+def extend_pro(uid: int, days: int):
+    """Продлевает Pro подписку на days дней."""
+    conn = _conn()
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    
+    # Получаем текущую дату окончания
+    row = conn.execute("SELECT pro_until FROM users WHERE user_id = ?", (uid,)).fetchone()
+    if row and row["pro_until"]:
+        try:
+            current_end = datetime.fromisoformat(row["pro_until"])
+            if current_end > now:
+                new_end = current_end + timedelta(days=days)
+            else:
+                new_end = now + timedelta(days=days)
+        except (ValueError, TypeError):
+            new_end = now + timedelta(days=days)
+    else:
+        new_end = now + timedelta(days=days)
+    
+    conn.execute("UPDATE users SET pro_until = ? WHERE user_id = ?", (new_end.isoformat(), uid))
+    conn.commit()
+    conn.close()
+    return new_end
+
+
+def is_pro(uid: int) -> bool:
+    """Проверяет, активна ли Pro подписка."""
+    conn = _conn()
+    row = conn.execute("SELECT pro_until FROM users WHERE user_id = ?", (uid,)).fetchone()
+    conn.close()
+    
+    if not row or not row["pro_until"]:
+        return False
+    
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(row["pro_until"]) > datetime.now()
+    except (ValueError, TypeError):
+        return False
+
 
 def record_scan(uid: int, address: str, risk_level: str, scan_time_ms: int):
     conn = _conn()
