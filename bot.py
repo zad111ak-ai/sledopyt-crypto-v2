@@ -167,6 +167,7 @@ def kb_after_scan(address: str, risk: str, symbol: str = "", chain: str = "") ->
         btns.append([InlineKeyboardButton(text="📋 Полный аудит", callback_data=f"paid:{address}")])
     if symbol:
         btns.append([InlineKeyboardButton(text="📊 В watchlist", callback_data=f"watch:add:{address}:{symbol}:{chain}")])
+    btns.append([InlineKeyboardButton(text="📤 Шерить PNG", callback_data=f"share:{address}")])
     btns.append([InlineKeyboardButton(text="🔍 Проверить другой", callback_data="menu:search")])
     btns.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu:back")])
     return InlineKeyboardMarkup(inline_keyboard=btns)
@@ -212,6 +213,13 @@ def kb_popular() -> InlineKeyboardMarkup:
 #  AIOROUTER
 # ═══════════════════════════════════════════════════════════════════
 router = Router()
+
+# ─── Подключение дополнительных хендлеров ─────────────────────
+from handlers import legends as legends_handler
+from handlers import investigate as investigate_handler
+
+router.include_router(legends_handler.router)
+router.include_router(investigate_handler.router)
 
 
 # ─── /start ────────────────────────────────────────────────────────
@@ -878,47 +886,30 @@ async def cb_watch_add(cq: CallbackQuery):
 
 @router.message(Command("dna"))
 async def cmd_dna(m: Message):
-    parts = m.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        await m.answer(
-            "🧬 <b>ДНК-анализ кошелька</b>\n\n"
-            "Отправь: /dna 0x...\n\n"
-            f"Стоимость: {DNA_COST} кредитов",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    wallet = parts[1].strip()
+    """DNA кошелька — честное признание 'скоро'."""
     uid = m.from_user.id
     user = ensure_user(uid)
 
-    if user["balance"] < DNA_COST:
-        await m.answer(
-            f"⚠️ Недостаточно кредитов\n\n"
-            f"Баланс: {user['balance']} | Нужно: {DNA_COST}",
-            reply_markup=kb_deposit(),
-            parse_mode=ParseMode.HTML,
-        )
-        return
+    # Если уже с аргументом — возвращаем кредиты
+    parts = m.text.split(maxsplit=1)
+    if len(parts) >= 2 and parts[1].strip():
+        # Возвращаем кредиты за DNA
+        db.add_balance(uid, 5, "Возврат за DNA (скоро)")
+        db.log_credit_transaction(uid, 5, "refund", "Возврат за DNA — скоро")
 
-    db.spend_balance(uid, DNA_COST)
-    db.log_credit_transaction(uid, -DNA_COST, "spend", "ДНК-анализ кошелька")
-    status = await m.answer("🧬 Анализирую кошелёк...")
-
-    try:
-        from wallet_dna import WalletDNAAnalyzer, format_dna_report
-        analyzer = WalletDNAAnalyzer()
-        analysis = await analyzer.analyze(wallet)
-        report = format_dna_report(analysis)
-        await status.edit_text(report, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    except Exception as e:
-        log.error(f"DNA error: {e}")
-        db.add_balance(uid, DNA_COST)
-        await status.edit_text(
-            "❌ Ошибка анализа\n\nКредит возвращён ✅\nПопробуй через 30 секунд",
-            reply_markup=kb_back(),
-            parse_mode=ParseMode.HTML,
-        )
+    await m.answer(
+        "🧬 <b>DNA кошелька — скоро</b>\n\n"
+        "Работаем над интеграцией с:\n"
+        "• Helius (Solana)\n"
+        "• Etherscan (Ethereum)\n"
+        "• Toncenter (TON)\n\n"
+        "Пока используй:\n"
+        "• solscan.io\n"
+        "• etherscan.io\n"
+        "• tonviewer.com\n\n"
+        "💰 Возвращаю 5 кредитов",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1116,6 +1107,13 @@ async def handle_any_text(m: Message):
         addr = parsed_addr.address
         chain = parsed_addr.chain
         hist = parsed_addr.historical_info
+
+        # Проверка на легенду из Музея
+        from handlers.legends import check_legend
+        legend_card = check_legend(addr)
+        if legend_card:
+            await m.answer(legend_card, parse_mode=ParseMode.HTML)
+            return
 
         # Легендарный адрес → красивая справка
         if parsed_addr.is_historical and hist:
@@ -1506,6 +1504,53 @@ async def on_ton_payment(m: Message):
     )
 
     log.info(f"TON payment: user={user_id} product={product_key} amount={amount_ton}")
+
+
+# ─── SHARE PNG ────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("share:"))
+async def cb_share(cq: CallbackQuery):
+    """Генерирует PNG-карточку для шеринга."""
+    from services.visual.share_card import generate_report_card
+    from aiogram.types import BufferedInputFile
+
+    address = cq.data.split(":", 1)[1]
+
+    # Запускаем скан для данных
+    try:
+        result = await scan_token(address)
+    except Exception:
+        await cq.answer("❌ Ошибка", show_alert=True)
+        return
+
+    if not result.get("success"):
+        await cq.answer("❌ Токен не найден", show_alert=True)
+        return
+
+    assessment = result.get("assessment", {})
+    token_data = {
+        "symbol": result.get("symbol", "TOKEN"),
+        "name": result.get("name", ""),
+        "chain": result.get("chain", ""),
+        "price": result.get("price", 0),
+        "market_cap": result.get("market_cap", 0),
+        "liquidity": result.get("liquidity", 0),
+        "holders": result.get("holders", 0),
+    }
+    security = {
+        "score": assessment.get("risk_score", 50),
+        "flags": assessment.get("flags", []),
+        "risk_level": assessment.get("risk_level", "unknown"),
+    }
+
+    img_bytes = generate_report_card(token_data, security)
+    photo = BufferedInputFile(img_bytes, filename="report.png")
+
+    await cq.message.answer_photo(
+        photo=photo,
+        caption=f"📊 ${token_data['symbol']} — Crypto Detective Report\n#CryptoScout #CryptoDetective",
+    )
+    await cq.answer()
 
 
 # ═══════════════════════════════════════════════════════════════════
