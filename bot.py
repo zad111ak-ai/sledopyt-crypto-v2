@@ -1399,49 +1399,14 @@ async def cmdapistats(m: Message):
 
 @router.message(Command("buy"))
 async def cmd_buy(m: Message, command: CommandObject):
-    """Покупка кредитов через TON Space."""
-    uid = m.from_user.id
-
-    if command.args:
-        product_key = command.args.strip().lower()
-        product = TON_PRODUCTS.get(product_key)
-        if not product:
-            await m.answer(
-                "❌ Неизвестный продукт\n\n"
-                "Доступно:\n"
-                "• /buy credits_10 — 10 кредитов (1 TON)\n"
-                "• /buy credits_50 — 50 кредитов (4.5 TON)\n"
-                "• /buy credits_200 — 200 кредитов (15 TON)\n"
-                "• /buy pro_week — Pro на неделю (50 TON)\n"
-                "• /buy pro_month — Pro на месяц (180 TON)",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-
-        try:
-            await create_ton_invoice(m.bot, uid, product_key)
-        except Exception as e:
-            log.error(f"Invoice error: {e}")
-            await m.answer("❌ Ошибка создания инвойса. Попробуй позже.")
-        return
-
-    # Меню покупки
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 10 кредитов — 1 TON", callback_data="buy:credits_10")],
-        [InlineKeyboardButton(text="💎 50 кредитов — 4.5 TON", callback_data="buy:credits_50")],
-        [InlineKeyboardButton(text="💎 200 кредитов — 15 TON", callback_data="buy:credits_200")],
-        [InlineKeyboardButton(text="👑 Pro неделя — 50 TON", callback_data="buy:pro_week")],
-        [InlineKeyboardButton(text="👑 Pro месяц — 180 TON", callback_data="buy:pro_month")],
-    ])
-
+    """Покупка кредитов — скоро."""
     await m.answer(
-        "💳 <b>ПОКУПКА КРЕДИТОВ</b>\n\n"
-        "Оплата через TON Space (без комиссии)\n\n"
-        "Выбери пакет:",
-        reply_markup=kb,
+        "🛒 <b>Покупка кредитов</b>\n\n"
+        "Сейчас всё бесплатно! 🎉\n\n"
+        "Платные функции появятся позже.\n"
+        "Пользуйся ботом без ограничений!",
         parse_mode=ParseMode.HTML,
     )
-
 
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(cq: CallbackQuery):

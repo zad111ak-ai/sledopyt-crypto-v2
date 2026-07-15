@@ -13,7 +13,7 @@ import db
 
 router = Router()
 
-INVESTIGATE_COST = 5
+INVESTIGATE_COST = 0  # Free for now
 
 
 def _detect_chain(address: str) -> str:
@@ -79,8 +79,7 @@ async def cmd_investigate(m: Message, command: CommandObject):
             "❌ Расследование пока работает для EVM/Solana/TON\n\n"
             "Кредит возвращён ✅",
         )
-        db.add_balance(uid, INVESTIGATE_COST)
-        db.log_credit_transaction(uid, INVESTIGATE_COST, "refund", "Возврат: неизвестная сеть")
+# Free mode — no refund needed
         return
 
     # Запускаем расследование с прогрессом
@@ -119,8 +118,7 @@ async def cmd_investigate(m: Message, command: CommandObject):
             "Кредит возвращён ✅",
             parse_mode=ParseMode.HTML,
         )
-        db.add_balance(uid, INVESTIGATE_COST)
-        db.log_credit_transaction(uid, INVESTIGATE_COST, "refund", "Возврат: таймаут")
+# Free mode — no refund needed
         return
     finally:
         await investigator.close()
