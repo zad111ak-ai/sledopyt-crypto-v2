@@ -218,10 +218,19 @@ router = Router()
 from handlers import legends as legends_handler
 from handlers import investigate as investigate_handler
 from handlers import scam_hunter as scam_hunter_handler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 router.include_router(legends_handler.router)
 router.include_router(investigate_handler.router)
 router.include_router(scam_hunter_handler.router)
+
+# ─── Cron: ежедневное расследование в канал ───────────────────
+scheduler = AsyncIOScheduler()
+
+
+async def _run_daily_investigation(bot_instance):
+    from services.channel.daily_investigation import daily_investigation
+    await daily_investigation(bot_instance)
 
 
 # ─── /start ────────────────────────────────────────────────────────
