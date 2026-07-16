@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
 [![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-26A5E4.svg)](https://t.me/Cryptop_q_bot)
+[![GitHub stars](https://img.shields.io/github/stars/zad111ak-ai/sledopyt-crypto-v2?style=social)](https://github.com/zad111ak-ai/sledopyt-crypto-v2)
+[![GitHub contributors](https://img.shields.io/github/contributors/zad111ak-ai/sledopyt-crypto-v2)](https://github.com/zad111ak-ai/sledopyt-crypto-v2/graphs/contributors)
 
 ---
 
